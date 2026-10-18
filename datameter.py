@@ -43,14 +43,15 @@ SOUND_PATH = HERE / "tock.wav"
 
 DEFAULT_CONFIG = {
     "interface": "wlp4s0",
-    "cycle_start_day": 18,        # Iliad 300 GB plan resets on the 18th
-    "cycle_limit_gb": 300.0,
+    "cycle_start_day": 1,
+    "cycle_limit_gb": 1000.0,
     "daily_limit_gb": 10.0,
     "alert_thresholds_pct": [80, 100],
     "sound_enabled": True,
     "sound_volume": 0.35,
     "notifications": True,
     "refresh_seconds": 10,
+    "setup_done": False,
 }
 
 # --------------------------------------------------------------------------- #
@@ -158,6 +159,24 @@ def list_interfaces() -> list[str]:
         return [i["name"] for i in j.get("interfaces", [])]
     except Exception:
         return []
+
+
+def default_interface(fallback: str = "wlp4s0") -> str:
+    """Interface with the most recorded traffic (avoids idle NICs)."""
+    try:
+        j = json.loads(run(["vnstat", "--json"]).stdout)
+        best, best_bytes = None, -1
+        for i in j.get("interfaces", []):
+            total = i.get("traffic", {}).get("total", {})
+            n = int(total.get("rx", 0)) + int(total.get("tx", 0))
+            if n > best_bytes:
+                best, best_bytes = i["name"], n
+        if best:
+            return best
+    except Exception:
+        pass
+    found = list_interfaces()
+    return found[0] if found else fallback
 
 
 def vnstat_snapshot(iface: str) -> dict:
@@ -459,9 +478,13 @@ class App:
         self.editing = False
         self.edit_buf = ""
         self.running = True
-        self.view = "dash"          # dash | settings | help
+        self.view = "dash"          # dash | settings | help | wizard
         self._dirty = True
         self._last_min = None
+        self.wiz_values: dict = {}
+        self.wiz_steps: list = []
+        self.wiz_step = 0
+        self.wiz_buf = ""
 
     # -- data ------------------------------------------------------------- #
 
@@ -543,6 +566,8 @@ class App:
             self.draw_settings(h, w)
         elif self.view == "help":
             self.draw_help(h, w)
+        elif self.view == "wizard":
+            self.draw_wizard(h, w)
         else:
             self.draw_dashboard(h, w)
             self.draw_footer(h, w)
@@ -711,6 +736,230 @@ class App:
                 self.put(yr + 1, x0 + ci * colw, lab.center(barw), curses.A_DIM)
         return yr + 2
 
+    # -- first-run wizard -------------------------------------------------- #
+
+    def start_wizard(self):
+        """Begin the first-time setup wizard (also reachable with 'w')."""
+        self.wiz_values = dict(self.cfg)
+        found = list_interfaces()
+        cur = self.cfg.get("interface")
+        ifaces = ([cur] if cur else []) + [x for x in found if x != cur]
+        if not ifaces:
+            ifaces = ["wlp4s0"]
+        self.wiz_values["interface"] = cur or ifaces[0]
+        self.wiz_steps = [
+            {"kind": "welcome", "title": "Welcome"},
+            {"kind": "choice", "key": "interface", "title": "Network interface",
+             "choices": ifaces, "hint": "the vnstat interface to read (left/right to choose)"},
+            {"kind": "int", "key": "cycle_start_day", "title": "Plan reset day", "min": 1, "max": 28,
+             "hint": "day of the month your data plan resets (1-28)"},
+            {"kind": "float", "key": "cycle_limit_gb", "title": "Plan allowance",
+             "hint": "total data allowance per billing cycle, in GB"},
+            {"kind": "float", "key": "daily_limit_gb", "title": "Daily budget",
+             "hint": "soft daily data budget, in GB"},
+            {"kind": "list", "key": "alert_thresholds_pct", "title": "Alert thresholds",
+             "hint": "percentages of the limits to alert at, e.g. 80,100"},
+            {"kind": "bool", "key": "sound_enabled", "title": "Alert sound",
+             "hint": "play a short tock when an alert fires"},
+            {"kind": "bool", "key": "notifications", "title": "Desktop notifications",
+             "hint": "send a desktop notification when an alert fires"},
+            {"kind": "summary", "title": "Ready"},
+        ]
+        self.wiz_step = 0
+        self.wiz_buf = ""
+        self.view = "wizard"
+        self._dirty = True
+
+    def _wiz_step(self):
+        return self.wiz_steps[self.wiz_step]
+
+    def wiz_next(self):
+        if self.wiz_step >= len(self.wiz_steps) - 1:
+            self._wiz_finish()
+            return
+        self.wiz_step += 1
+        self.wiz_buf = ""
+        self.message = ""
+        self._dirty = True
+
+    def wiz_prev(self):
+        if self.wiz_step > 0:
+            self.wiz_step -= 1
+            self.wiz_buf = ""
+            self.message = ""
+            self._dirty = True
+
+    def _wiz_commit(self) -> bool:
+        st = self._wiz_step()
+        kind, key = st["kind"], st["key"]
+        buf = self.wiz_buf.strip()
+        if not buf:                      # empty input keeps the current value
+            return True
+        try:
+            if kind == "int":
+                v = clamp(int(float(buf)), st.get("min", 0), st.get("max", 10 ** 9))
+            elif kind == "float":
+                v = max(0.0, float(buf))
+            else:                        # list
+                v = sorted({float(x) for x in buf.replace(" ", "").split(",") if x})
+                if not v:
+                    raise ValueError
+        except ValueError:
+            self.message = "invalid value"
+            return False
+        self.wiz_values[key] = v
+        self.message = ""
+        return True
+
+    def _wiz_finish(self):
+        self.cfg.update(self.wiz_values)
+        self.cfg["setup_done"] = True
+        save_config(self.cfg)
+        self.view = "dash"
+        self.message = "setup saved"
+        self.refresh()
+
+    def _wiz_cancel(self):
+        self.cfg["setup_done"] = True
+        save_config(self.cfg)
+        self.view = "dash"
+        self.message = "setup skipped (press w to run it again)"
+        self._dirty = True
+
+    def handle_wizard_key(self, ch):
+        st = self._wiz_step()
+        kind = st["kind"]
+        if ch == 27:
+            self._wiz_cancel()
+            return
+        if kind == "welcome":
+            if ch in (10, 13, curses.KEY_ENTER, ord(" ")):
+                self.wiz_next()
+            return
+        if kind == "summary":
+            if ch in (10, 13, curses.KEY_ENTER, ord(" ")):
+                self._wiz_finish()
+            elif ch in (curses.KEY_BACKSPACE, 127, 8, curses.KEY_LEFT):
+                self.wiz_prev()
+            return
+        if kind == "choice":
+            choices = st["choices"]
+            key = st["key"]
+            cur = self.wiz_values.get(key)
+            idx = choices.index(cur) if cur in choices else 0
+            if ch in (curses.KEY_LEFT, ord("h"), ord("-")):
+                self.wiz_values[key] = choices[(idx - 1) % len(choices)]
+            elif ch in (curses.KEY_RIGHT, ord("l"), ord("+"), ord("="), ord(" ")):
+                self.wiz_values[key] = choices[(idx + 1) % len(choices)]
+            elif ch in (10, 13, curses.KEY_ENTER):
+                self.wiz_next()
+            self._dirty = True
+            return
+        if kind == "bool":
+            key = st["key"]
+            if ch in (curses.KEY_LEFT, ord("h"), ord("-"), curses.KEY_RIGHT,
+                      ord("l"), ord("+"), ord("="), ord(" ")):
+                self.wiz_values[key] = not bool(self.wiz_values.get(key))
+            elif ch in (10, 13, curses.KEY_ENTER):
+                self.wiz_next()
+            self._dirty = True
+            return
+        # int / float / list: text entry
+        if ch in (10, 13, curses.KEY_ENTER):
+            if self._wiz_commit():
+                self.wiz_next()
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
+            self.wiz_buf = self.wiz_buf[:-1]
+        elif 32 <= ch < 127:
+            self.wiz_buf += chr(ch)
+        self._dirty = True
+
+    def draw_wizard(self, h, w):
+        self.draw_header(w, subtitle="setup")
+        st = self._wiz_step()
+        kind = st["kind"]
+        y = 4
+        self.put(y, 2, f"Step {self.wiz_step + 1} of {len(self.wiz_steps)}", curses.A_DIM)
+        y += 2
+
+        if kind == "welcome":
+            self.put(y, 2, "Welcome to datameter", curses.A_BOLD | curses.color_pair(C_ACCENT))
+            y += 2
+            for line in [
+                "A short setup for your data plan and alerts.",
+                "Everything here can be changed later in settings (s),",
+                "and this wizard can be re-run at any time with w.",
+            ]:
+                self.put(y, 2, line)
+                y += 1
+            y += 1
+            self.put(y, 2, "Press Enter to begin.", curses.A_BOLD)
+
+        elif kind == "summary":
+            self.put(y, 2, "Review and save", curses.A_BOLD | curses.color_pair(C_ACCENT))
+            y += 2
+            v = self.wiz_values
+            rows = [
+                ("Interface", v.get("interface")),
+                ("Plan reset day", v.get("cycle_start_day")),
+                ("Plan allowance", f"{float(v.get('cycle_limit_gb', 0)):g} GB"),
+                ("Daily budget", f"{float(v.get('daily_limit_gb', 0)):g} GB"),
+                ("Alert thresholds", ",".join(f"{float(x):g}" for x in v.get("alert_thresholds_pct", [])) + " %"),
+                ("Alert sound", "on" if v.get("sound_enabled") else "off"),
+                ("Notifications", "on" if v.get("notifications") else "off"),
+            ]
+            for label, val in rows:
+                self.put(y, 4, f"{label:<18}", curses.A_DIM)
+                self.put(y, 24, str(val))
+                y += 1
+            y += 1
+            self.put(y, 2, "Press Enter to save.", curses.A_BOLD)
+
+        else:
+            self.put(y, 2, st["title"], curses.A_BOLD | curses.color_pair(C_ACCENT))
+            y += 2
+            key = st["key"]
+            cur = self.wiz_values.get(key)
+            if kind == "choice":
+                choices = st["choices"]
+                idx = choices.index(cur) if cur in choices else 0
+                self.put(y, 4, "◀  ")
+                self.put(y, 7, str(cur), curses.A_BOLD)
+                self.put(y, 7 + len(str(cur)) + 2, "▶")
+                self.put(y, 7 + len(str(cur)) + 4, f"({idx + 1}/{len(choices)})", curses.A_DIM)
+            elif kind == "bool":
+                on = bool(cur)
+                self.put(y, 4, f"[ {'on ' if on else 'off'} ]",
+                         (curses.color_pair(C_OK) if on else curses.A_DIM) | curses.A_BOLD)
+                self.put(y, 12, "enabled" if on else "disabled", curses.A_DIM)
+            else:
+                if kind == "list":
+                    shown = ",".join(f"{float(x):g}" for x in cur)
+                elif kind == "float":
+                    shown = f"{float(cur):g}"
+                else:
+                    shown = str(cur)
+                if self.wiz_buf:
+                    self.put(y, 4, self.wiz_buf + "█", curses.A_BOLD | curses.color_pair(C_ACCENT))
+                    self.put(y, 4 + len(self.wiz_buf) + 3, f"(was {shown})", curses.A_DIM)
+                else:
+                    self.put(y, 4, shown, curses.A_BOLD)
+                    self.put(y, 4 + len(shown) + 3, "Enter to keep, or type a new value", curses.A_DIM)
+            y += 2
+            self.put(y, 2, st.get("hint", ""), curses.A_DIM)
+
+        if kind == "welcome":
+            keys = " Enter begin · Esc skip "
+        elif kind == "summary":
+            keys = " Enter save · Backspace back · Esc skip "
+        elif kind in ("choice", "bool"):
+            keys = " left/right change · Enter next · Esc skip "
+        else:
+            keys = " type a value · Enter next · Esc skip "
+        self.put(h - 1, 0, keys.ljust(w - 1), curses.A_REVERSE)
+        if self.message:
+            self.put(h - 2, 2, self.message[: w - 3], curses.color_pair(C_ACCENT))
+
     # -- settings --------------------------------------------------------- #
 
     def draw_settings(self, h, w):
@@ -763,6 +1012,7 @@ class App:
         lines = [
             ("KEYS", ""),
             ("  s", "open settings: limits, alert thresholds, sound"),
+            ("  w", "re-run the first-time setup wizard"),
             ("  d", "start / stop the vnstat daemon"),
             ("  t", "test the tock sound"),
             ("  r", "refresh now"),
@@ -799,7 +1049,8 @@ class App:
     def draw_footer(self, h, w):
         active, _ = daemon_status()
         daemon_key = f"[d] stop daemon" if active == "active" else "[d] start daemon"
-        keys = f" [s] settings │ {daemon_key} │ [t] test sound │ [r] refresh │ [?] help │ [q] quit "
+        keys = (f" [s] settings │ [w] setup │ {daemon_key} │ [t] test sound │ "
+                f"[r] refresh │ [?] help │ [q] quit ")
         self.put(h - 1, 0, keys.ljust(w - 1), curses.A_REVERSE)
         if self.message:
             self.put(h - 2, 2, self.message[: w - 3], curses.color_pair(C_ACCENT))
@@ -813,8 +1064,13 @@ class App:
         if self.view == "settings":
             self.handle_settings_key(ch)
             return
+        if self.view == "wizard":
+            self.handle_wizard_key(ch)
+            return
         if ch == ord("q"):
             self.running = False
+        elif ch == ord("w"):
+            self.start_wizard()
         elif ch == ord("?"):
             self.view = "help"
         elif ch == ord("r"):
@@ -960,7 +1216,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     if not CONFIG_PATH.exists():
-        save_config(DEFAULT_CONFIG)
+        base = dict(DEFAULT_CONFIG)
+        base["interface"] = default_interface()
+        save_config(base)
+    first_run = not load_config().get("setup_done")
     cfg = load_config()
     if args.interface:
         cfg["interface"] = args.interface
@@ -987,7 +1246,13 @@ def main(argv=None) -> int:
             print(msg)
         return 0
 
-    curses.wrapper(lambda scr: App(scr, cfg).run())
+    def _run(scr):
+        app = App(scr, cfg)
+        if first_run:
+            app.start_wizard()
+        app.run()
+
+    curses.wrapper(_run)
     return 0
 
 

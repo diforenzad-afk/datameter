@@ -56,6 +56,22 @@ ln -sf "$PWD/datameter" ~/.local/bin/datameter
 
 Ensure `~/.local/bin` is in `PATH`.
 
+## First run
+
+The first launch runs a short setup wizard. It asks for:
+
+1. Network interface (the one carrying traffic is preselected).
+2. Day of the month your plan resets.
+3. Plan allowance in GB.
+4. Daily budget in GB.
+5. Alert thresholds as percentages, for example `80,100`.
+6. Whether to play the alert sound.
+7. Whether to send desktop notifications.
+
+Nothing is assumed about your plan; the values are written to `config.json` at
+the end. `Enter` accepts the shown value, `Esc` skips the wizard, and `w`
+re-runs it at any time. The same fields are editable later in settings (`s`).
+
 ## Usage
 
 ```bash
@@ -74,6 +90,7 @@ timer and is the only mode that fires alerts without the UI running; see
 | Key | Action |
 |-----|--------|
 | `s` | Open settings. |
+| `w` | Re-run the first-time setup wizard. |
 | `d` | Start or stop the vnstat daemon. The header and footer show which action applies. |
 | `t` | Play the alert sound. |
 | `r` | Refresh. |
@@ -127,6 +144,7 @@ uses `DATAMETER_STATE`.
 | `sound_volume` | Sound volume, 0.0–1.0 |
 | `notifications` | Send a desktop notification |
 | `refresh_seconds` | Auto-refresh interval |
+| `setup_done` | Set once the wizard has been completed or skipped |
 
 ## Notes and limitations
 
