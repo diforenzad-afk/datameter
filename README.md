@@ -16,41 +16,7 @@ without warranty.
 
 ## Screenshot
 
-```
-╭─ datameter ─────────────────────────────────────────────────────────────── when: 12:41 ──╮
-│ vnstat ● active/enabled                                                                 [d] stop daemon  │
-╰──────────────────────────────────────────────────────────────────────────────────────────╯
-
-  CYCLE  2026-10-18 → 2026-11-18   day 1/31
-  ▍░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░
-  1.7 / 300 GB     0.6%    projected 86.8 GB   ● ON TRACK
-
-  TODAY
-  ██ ██ ██ ██ ██ █▌ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░ ░░
-  1.74 / 10 GB    17.4%
-
-  AVERAGES                                              ALERTS
-  per on-hour    418.0 MiB (over 48 h)                  daily limit 10 GB  warn at 80,100%
-  per day          2.8 GiB (last 7 d)                   cycle limit 300 GB  warn at 80,100%
-  per week        19.6 GiB                              sound on   notify on
-  projected       86.8 GiB (per cycle)                  press  s  to change limits
-
-  LAST 7 DAYS (GiB)     peak 7.0 GiB
-      7.0 │              █████  █████
-      5.6 │              █████  █████
-      4.2 │              █████  █████
-      2.8 │              █████  █████
-      1.4 │█████  █████  █████  █████         █████  █████
-          └─────────────────────────────────────────────────
-             Mo     Tu     We     Th     Fr     Sa     Su
-  LAST 24 HOURS         peak 894.1 MiB
-    894.1 │                  ██
-    670.6 │                  ██                                     ██ ██
-    447.1 │               ██ ██                                     ██ ██
-    223.5 │               ██ ██                                     ██ ██    ██ ██
-          └────────────────────────────────────────────────────────────────────────
-           13       16       19       22       01       04       07       10    12
-```
+![datameter dashboard](assets/screenshot.png)
 
 ## Features
 
