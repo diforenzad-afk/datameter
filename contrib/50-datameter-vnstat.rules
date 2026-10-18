@@ -1,0 +1,13 @@
+// Allow the desktop user to start/stop the vnstat daemon without a password,
+// so datameter's "d" (daemon on/off) toggle works from inside the TUI.
+//
+// Install:  sudo cp 50-datameter-vnstat.rules /usr/share/polkit-1/rules.d/
+//       or: ./install-polkit-rule.sh
+
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel") &&
+        action.lookup("unit") == "vnstat.service") {
+        return polkit.Result.YES;
+    }
+});

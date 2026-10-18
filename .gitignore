@@ -1,0 +1,6 @@
+config.json
+.alert-state.json
+tock.wav
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,6 @@
+[Unit]
+Description=datameter alert check
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/datameter --check

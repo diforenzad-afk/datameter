@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# datameter launcher. Symlink this into your PATH, e.g.
+#   ln -sf "$PWD/datameter" ~/.local/bin/datameter
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+exec python3 "$here/datameter.py" "$@"
